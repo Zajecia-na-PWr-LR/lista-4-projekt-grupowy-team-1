@@ -1,4 +1,6 @@
 import numpy as np
+from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.base import clone
 
 def calculate_profit(y_true, y_pred, salaries):
     profit = 0
@@ -33,4 +35,36 @@ def profit_summary(y_true, y_pred, salaries):
         "model": model_profit,
         "all_discount": all_discount,
         "no_discount": no_discount
+    }
+    
+def tune_threshold(y_true, scores, salaries, n_thresholds=50):
+    thresholds = np.unique(np.quantile(scores, np.linspace(0, 1, n_thresholds)))
+    best_t, best_p = thresholds[0], -np.inf
+    for t in thresholds:
+        y_pred = (scores >= t).astype(int)
+        p = calculate_profit(y_true, y_pred, salaries)
+        if p > best_p:
+            best_p, best_t = p, t
+    return best_t, best_p
+
+
+def cv_with_threshold(model, X, y, salaries, n_splits=5, stratified=True, random_state=42):
+    y = np.asarray(y)
+    salaries = np.asarray(salaries)
+    splitter = (StratifiedKFold if stratified else KFold)(
+        n_splits=n_splits, shuffle=True, random_state=random_state
+    )
+    profits, thresholds = [], []
+    for tr, val in splitter.split(X, y):
+        m = clone(model)
+        m.fit(X[tr], y[tr])
+        scores = m.predict_proba(X[val])[:, 1]
+        t, p = tune_threshold(y[val], scores, salaries[val])
+        profits.append(p)
+        thresholds.append(t)
+    return {
+        "profits": np.array(profits),
+        "thresholds": np.array(thresholds),
+        "mean": float(np.mean(profits)),
+        "std": float(np.std(profits)),
     }
